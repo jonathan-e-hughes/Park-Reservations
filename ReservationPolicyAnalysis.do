@@ -775,6 +775,190 @@ esttab Base WeekendEffects Seasonality ParkSeasonality NonParametric using "D:\Y
 	label("Permit Effects" "Week effects" "Park*Week" "Observations")) ///
     replace mtitles
 
+**** Selection on unobservables and outputs for Oster (2019) calculations
+*** Clean up income distribution variable
+import delimited "D:\Dropbox\Timed Entry\Data\IncDist\ZipGini.csv", clear 
+gen Gini = real(v3)
+drop if Gini == .
+split(v2)
+rename v22 zip
+order zip Gini
+sort zip
+keep zip Gini
+save "D:\Dropbox\Timed Entry\Data\Gini2019Clean.dta", replace
+*** Clean up population variable
+import delimited "D:\Dropbox\Timed Entry\Data\IncDist\ZipPop.csv", clear 
+gen Pop = real(v3)
+drop if Pop == .
+split(v2)
+rename v22 zip
+order zip Pop
+sort zip
+keep zip Pop
+save "D:\Dropbox\Timed Entry\Data\Pop2019Clean.dta", replace
+*** Construct total Rec.gov activity variable
+import delimited "D:\Recreation dot Gov Data\reservations2021\reservations2021.csv", clear
+gen TotRec = 1
+sort customerzip
+gen zip = substr(customerzip,1,5)
+drop if zip == ""
+sort zip
+collapse (sum) TotRec, by(zip)
+merge 1:1 zip using "D:\Dropbox\Timed Entry\Data\Pop2019Clean.dta",
+gen RecPerCap = TotRec/Pop
+keep zip RecPerCap
+sort zip
+save "D:\Dropbox\Timed Entry\Data\RecPerCapClean.dta", replace
+**** Income Models
+******* Use Model 3 Specification as Marginal Effects NOT Computed for Model 4 **********
+use "D:\Dropbox\Timed Entry\Data\AllParks_All.dta", clear
+drop if strlen(customerzip) > 5
+recast str5 customerzip
+*** Merge in and create proxies for cross moments
+** Travel distances
+sort customerzip
+merge m:1 customerzip using "D:\Recreation dot Gov Data\US_ZIP_codes_to_longitude_and_latitude_clean.dta",
+drop if _merge == 2
+drop _merge
+* Fill in some missing latitudes and longitudes
+replace facilitylongitude = -68.4616174 if parentlocation == "Acadia National Park"
+replace facilitylatitude = 44.3192622 if parentlocation == "Acadia National Park"
+replace facilitylongitude = -156.2318748 if parentlocation == "HaleakalÄ National Park"
+replace facilitylatitude = 20.7034967 if parentlocation == "HaleakalÄ National Park"
+replace facilitylongitude = -156.2318748 if parentlocation == "Haleakala National Park"
+replace facilitylatitude = 20.7034967 if parentlocation == "Haleakala National Park"
+replace facilitylongitude = -121.7149235 if parentlocation == "Mount Rainier National Park"
+replace facilitylatitude = 46.8601069 if parentlocation == "Mount Rainier National Park"
+replace facilitylongitude = -109.7504503 if parentlocation == "Arches National Park"
+replace facilitylatitude = 38.7317195 if parentlocation == "Arches National Park"
+replace facilitylongitude = -114.1754903 if parentlocation == "Glacier National Park"
+replace facilitylatitude = 48.6596785 if parentlocation == "Glacier National Park"
+replace facilitylongitude = -105.8412874 if parentlocation == "Rocky Mountain National Park"
+replace facilitylatitude = 40.350615 if parentlocation == "Rocky Mountain National Park"
+replace facilitylongitude = -119.8807559 if parentlocation == "Yosemite National Park"
+replace facilitylatitude = 37.8528496 if parentlocation == "Yosemite National Park"
+geodist customerlat customerlong facilitylatitude facilitylongitude, gen(distance) miles
+drop if distance == .
+rename distance Dist
+** Merge in Gini coeff
+sort zip
+merge m:1 zip using "D:\Dropbox\Timed Entry\Data\Gini2019Clean.dta",
+keep if _merge == 3
+drop _merge
+** Merge in Recreation per capita 
+sort zip
+merge m:1 zip using "D:\Dropbox\Timed Entry\Data\RecPerCapClean.dta",
+keep if _merge == 3
+drop _merge
+***
+gen A1 = AdvPurch == 1 & Sharef5 > 0 & Sharef5 < 0.25
+gen A2 = AdvPurch == 1 & Sharef5 >= 0.25 & Sharef5 < 0.50
+gen A3 = AdvPurch == 1 & Sharef5 >= 0.50 & Sharef5 < 0.75
+gen A4 = AdvPurch == 1 & Sharef5 >= 0.75 & Sharef5 <= 1
+gen D1 = DayAhead == 1 & Sharef5 > 0 & Sharef5 < 0.25
+gen D2 = DayAhead == 1 & Sharef5 >= 0.25 & Sharef5 < 0.50
+gen D3 = DayAhead == 1 & Sharef5 >= 0.50 & Sharef5 < 0.75
+gen D4 = DayAhead == 1 & Sharef5 >= 0.75 & Sharef5 <= 1
+gen L1 = LeadTime > 0 & LeadTime < 30
+gen L2 = LeadTime >= 30 & LeadTime < 60
+gen L3 = LeadTime >= 60 & LeadTime < 90
+gen L4 = LeadTime >= 90 & LeadTime < 120
+gen L5 = LeadTime >= 120 & LeadTime < 180
+gen L6 = LeadTime >= 180 
+* Clustering variable (product X year)
+egen TxID = group(productid year)
+**** Check of main specification with (smaller) sample
+drop if Gini == .
+drop if Dist == .
+drop if RecPerCap == .
+* Add parkXweek of year effects
+xi: reg MedInc i.A1 i.A2 i.A3 i.A4 i.D1 i.D2 i.D3 i.D4 ///
+i.L1 i.L2 i.L3 i.L4 i.L5 i.L6 i.FedHoliday i.Weekend i.week i.productid, cluster(TxID)
+estadd local parkeffects "Yes" 
+estadd local weekeffects "Yes" 
+estadd local parkweekeffects "Yes" 
+eststo ParkSeasonality_redsamp
+* Add Mundlak terms
+xi: reg MedInc i.A1 i.A2 i.A3 i.A4 i.D1 i.D2 i.D3 i.D4 ///
+i.L1 i.L2 i.L3 i.L4 i.L5 i.L6 ///
+Dist RecPerCap Gini ///
+i.FedHoliday i.Weekend i.week i.productid, cluster(TxID)
+estadd local parkeffects "Yes" 
+estadd local weekeffects "Yes" 
+estadd local parkweekeffects "Yes" 
+eststo Mundlak
+*** Create tables
+esttab ParkSeasonality_redsamp Mundlak using ///
+    "D:\Dropbox\Timed Entry\Writing\RobustRegressions.tex", ///
+    cells(b(fmt(3)) se(par fmt(3))) ///
+    star(* 0.10 ** 0.05 *** 0.01) ///
+    label booktabs ///
+    keep(_IA1_1 _IA2_1 _IA3_1 _IA4_1 _ID1_1  _ID2_1 _ID3_1 _ID4_1 ///
+         _IL1_1 _IL2_1 _IL3_1 _IL4_1 _IL5_1 _IL6_1 _IFedHolida_1 _IWeekend_1) ///
+    title("Effects of Timed-Entry Systems on User Income") ///
+    stats(parkeffects weekeffects parkweekeffects N r2, ///
+          fmt(%s %s %s %9.0g) ///
+          label("Permit Effects" "Week effects" "Park*Week" "Observations" "R-squared")) ///
+replace mtitles
+* Auxilliary version for calculations
+*** Create .csv table
+esttab ParkSeasonality_redsamp Mundlak using ///
+    "D:\Dropbox\Timed Entry\Writing\RobustRegressions.csv", ///
+    cells(b(fmt(3)) se(par fmt(3))) ///
+    star(* 0.10 ** 0.05 *** 0.01) ///
+    label ///
+    keep(_IA1_1 _IA2_1 _IA3_1 _IA4_1 _ID1_1 _ID2_1 _ID3_1 _ID4_1 ///
+         _IL1_1 _IL2_1 _IL3_1 _IL4_1 _IL5_1 _IL6_1 _IFedHolida_1 _IWeekend_1) ///
+    stats(parkeffects weekeffects parkweekeffects N r2, ///
+          fmt(%s %s %s %9.0g %9.3f %9.3f) ///
+          label("Permit Effects" "Week effects" "Park*Week" "Observations" "R-squared")) ///
+    replace mtitles ///
+    plain
+**** Formatting is a pain here, so output a separate table and  
+* manually add the marginal effects
+* Add Proxies for cross-moments
+xi: reg MedInc ///
+c.Dist##i.A1 c.Dist##i.A2 c.Dist##i.A3 c.Dist##i.A4 ///
+c.RecPerCap##i.A1 c.RecPerCap##i.A2 c.RecPerCap##i.A3 c.RecPerCap##i.A4 ///
+c.Gini##i.A1 c.Gini##i.A2 c.Gini##i.A3 c.Gini##i.A4 ///
+c.Dist##i.D1 c.Dist##i.D2 c.Dist##i.D3 c.Dist##i.D4 ///
+c.RecPerCap##i.D1 c.RecPerCap##i.D2 c.RecPerCap##i.D3 c.RecPerCap##i.D4 ///
+c.Gini##i.D1 c.Gini##i.D2 c.Gini##i.D3 c.Gini##i.D4 ///
+c.Dist##i.L1 c.Dist##i.L2 c.Dist##i.L3 c.Dist##i.L4 c.Dist##i.L5 c.Dist##i.L6 ///
+c.RecPerCap##i.L1 c.RecPerCap##i.L2 c.RecPerCap##i.L3 c.RecPerCap##i.L4 c.RecPerCap##i.L5 c.RecPerCap##i.L6 ///
+c.Gini##i.L1 c.Gini##i.L2 c.Gini##i.L3 c.Gini##i.L4 c.Gini##i.L5 c.Gini##i.L6 ///
+i.FedHoliday i.Weekend i.week i.productid, cluster(TxID)
+scalar reg_r2  = e(r2)
+scalar reg_N   = e(N)
+margins, dydx(A1 A2 A3 A4 D1 D2 D3 D4 L1 L2 L3 L4 L5 L6) atmeans
+matrix b = r(b)
+matrix V = r(V)
+ereturn post b V
+scalar reg_r2  = e(r2)
+scalar reg_N   = e(N)
+eststo Margins
+* Make table
+esttab Margins using "D:\Dropbox\Timed Entry\Writing\margins_table.tex", ///
+    cells(b(fmt(3)) se(par fmt(3))) ///
+    star(* 0.10 ** 0.05 *** 0.01) ///
+    label booktabs ///
+    stats(N r2, ///
+          fmt(%9.0g %9.3f %9.3f) ///
+          label("Observations" "R-squared")) ///
+    title("Marginal Effects at Means") ///
+    replace
+* .csv version for calculations
+esttab Margins using "D:\Dropbox\Timed Entry\Writing\margins_table.csv", ///
+    cells(b(fmt(3)) se(par fmt(3))) ///
+    star(* 0.10 ** 0.05 *** 0.01) ///
+    label ///
+    plain ///
+    stats(N r2, ///
+          fmt(%9.0g %9.3f %9.3f) ///
+          label("Observations" "R-squared")) ///
+    title("Marginal Effects at Means") ///
+    replace	
+	
 *** Robustness checks 
 ** "Leave one out" analysis
 use "D:\YourDirectory_HERE\Data\AllParks_All.dta", clear
