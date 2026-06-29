@@ -1044,3 +1044,30 @@ using "D:\YourDirectory_HERE\Writing\LeaveOutRobust.tex", ///
 	stats(parkeffects weekeffects parkweekeffects N, fmt(%s %s %s %9.0g) ///
 	label("Permit Effects" "Week effects" "Park*Week" "Observations")) ///
     replace mtitles
+
+*** Create Figure 1 - Park visitor heat map data	
+* Merge in customerstate data
+use "D:\YourDirectory_HERE\Data\AllParks_All.dta", clear
+recast str2045 customerzip
+sort customerzip
+merge m:1 customerzip using "D:\YourDirectory_HERE\Data\StateZipCrossTab.dta", 
+keep parentlocation customerstate
+drop if customerstate =="AA"
+drop if customerstate =="AE"
+drop if customerstate =="AP"
+drop if customerstate =="GU"
+drop if customerstate =="PR"
+drop if customerstate =="VI"
+drop if customerstate ==""
+gen User = 1
+sort parentlocation 
+by parentlocation: egen totalusers = sum(User)
+sort parentlocation customerstate
+by parentlocation customerstate: egen stateusers = sum(User)
+gen StateShare = stateusers/totalusers
+drop if parentlocation == ""
+keep parentlocation customerstate StateShare
+duplicates drop
+sort parentlocation customerstate	
+export delimited using "/Users/jonathug/Dropbox/Timed Entry/Data/ParkVisitorsByState.csv", replace	ParkVisitorsByState
+	
