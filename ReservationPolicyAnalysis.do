@@ -1069,5 +1069,5 @@ drop if parentlocation == ""
 keep parentlocation customerstate StateShare
 duplicates drop
 sort parentlocation customerstate	
-export delimited using "/Users/jonathug/Dropbox/Timed Entry/Data/ParkVisitorsByState.csv", replace	ParkVisitorsByState
+export delimited using "D:\YourDirectory_HERE\Data\ParkVisitorsByState.csv", replace
 	
